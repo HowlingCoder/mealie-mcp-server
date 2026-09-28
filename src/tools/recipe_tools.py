@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 import traceback
@@ -20,8 +21,15 @@ from models.recipe import (
     RecipeTag,
     RecipeTool,
 )
+from utils import image_to_jpeg_data_url
 
 logger = logging.getLogger("mealie-mcp")
+
+# Limits for get_recipe_thumbnails_b64
+MAX_THUMBNAIL_BATCH = 25
+THUMBNAIL_CONCURRENCY = 5
+THUMBNAIL_MIN_EDGE, THUMBNAIL_MAX_EDGE = 32, 512
+THUMBNAIL_MIN_QUALITY, THUMBNAIL_MAX_QUALITY = 30, 95
 
 
 def _build_ingredient(
@@ -591,18 +599,20 @@ def register_recipe_tools(mcp: FastMCP, mealie: MealieFetcher) -> None:
             )
             raise ToolError(error_msg)
 
-    def _download_recipe_image(slug: str, file_name: str) -> Image:
+    def _fetch_recipe_image_bytes(slug: str, file_name: str) -> bytes:
         recipe = mealie.get_recipe(slug)
         if not recipe.get("image"):
             raise ValueError("Recipe has no image")
         try:
-            data = mealie.get_recipe_image(recipe["id"], file_name)
+            return mealie.get_recipe_image(recipe["id"], file_name)
         except MealieApiError as e:
             if e.status_code == 404:
                 # recipe.image is set but the file is missing on the Mealie server
                 raise ValueError("Recipe image file not found on the Mealie server")
             raise
-        return Image(data=data, format="webp")
+
+    def _download_recipe_image(slug: str, file_name: str) -> Image:
+        return Image(data=_fetch_recipe_image_bytes(slug, file_name), format="webp")
 
     @mcp.tool()
     def get_recipe_image(slug: str) -> Image:
@@ -644,6 +654,63 @@ def register_recipe_tools(mcp: FastMCP, mealie: MealieFetcher) -> None:
             logger.error({"message": error_msg})
             logger.debug({"message": "Error traceback", "traceback": traceback.format_exc()})
             raise ToolError(error_msg)
+
+    @mcp.tool()
+    async def get_recipe_thumbnails_b64(
+        slugs: List[str], max_edge: int = 150, quality: int = 70
+    ) -> Dict[str, Optional[str]]:
+        """Get small JPEG thumbnails of several recipes as base64 text (data URLs).
+
+        Unlike get_recipe_thumbnail this returns plain text instead of an image, so the
+        caller can process or embed the result (e.g. in HTML as <img src="...">).
+        Each thumbnail is scaled down so its longest edge is at most max_edge
+        (aspect ratio kept) and encoded as JPEG.
+
+        A recipe without an image, or an image that cannot be fetched or decoded, gets
+        None; one failing slug never fails the whole call.
+
+        Args:
+            slugs: Recipe slugs (max 25 per call).
+            max_edge: Longest edge in pixels, clamped to 32-512 (default 150).
+            quality: JPEG quality, clamped to 30-95 (default 70).
+
+        Returns:
+            Dict[str, Optional[str]]: slug -> "data:image/jpeg;base64,..." or None.
+        """
+        if len(slugs) > MAX_THUMBNAIL_BATCH:
+            raise ToolError(
+                f"Too many slugs: {len(slugs)}. "
+                f"At most {MAX_THUMBNAIL_BATCH} slugs are allowed per call."
+            )
+
+        edge = max(THUMBNAIL_MIN_EDGE, min(THUMBNAIL_MAX_EDGE, max_edge))
+        jpeg_quality = max(THUMBNAIL_MIN_QUALITY, min(THUMBNAIL_MAX_QUALITY, quality))
+        logger.info({"message": "Fetching recipe thumbnails", "count": len(slugs)})
+
+        semaphore = asyncio.Semaphore(THUMBNAIL_CONCURRENCY)
+
+        async def build(slug: str) -> Optional[str]:
+            async with semaphore:
+                try:
+                    data = await asyncio.to_thread(
+                        _fetch_recipe_image_bytes, slug, RECIPE_IMAGE_THUMBNAIL
+                    )
+                    return await asyncio.to_thread(
+                        image_to_jpeg_data_url, data, edge, jpeg_quality
+                    )
+                except Exception as e:
+                    logger.warning(
+                        {
+                            "message": "Recipe thumbnail unavailable",
+                            "slug": slug,
+                            "error_type": type(e).__name__,
+                        }
+                    )
+                    return None
+
+        unique_slugs = list(dict.fromkeys(slugs))
+        results = await asyncio.gather(*(build(slug) for slug in unique_slugs))
+        return dict(zip(unique_slugs, results))
 
     @mcp.tool()
     def set_recipe_image_from_url(slug: str, image_url: str) -> Dict[str, Any]:
