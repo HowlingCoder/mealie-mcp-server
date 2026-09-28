@@ -120,3 +120,53 @@ async def test_get_recipe_concise_includes_orgurl_tags_tools(invoke, fetcher):
     assert out["orgURL"] == "https://example.com/r"
     assert out["tags"] == [{"id": "t1", "name": "Quick", "slug": "quick"}]
     assert out["tools"][0]["name"] == "Pfanne"
+
+
+async def test_patch_recipe_merges_nutrition_into_existing(invoke, fetcher):
+    fetcher.recipe = {
+        **fetcher.recipe,
+        "nutrition": {"calories": "100", "fatContent": "5"},
+    }
+
+    await invoke(
+        "patch_recipe", slug="test-recipe", calories="450", protein_content="30"
+    )
+
+    body = fetcher.last("PATCH", "/api/recipes/")["json"]
+    # fatContent survives, caller-provided values win
+    assert body == {
+        "nutrition": {"calories": "450", "fatContent": "5", "proteinContent": "30"}
+    }
+
+
+async def test_patch_recipe_maps_all_nutrition_fields(invoke, fetcher):
+    await invoke(
+        "patch_recipe",
+        slug="test-recipe",
+        calories="450",
+        protein_content="35",
+        carbohydrate_content="60",
+        fat_content="12",
+        fiber_content="8",
+        sodium_content="800",
+    )
+
+    body = fetcher.last("PATCH", "/api/recipes/")["json"]
+    assert body == {
+        "nutrition": {
+            "calories": "450",
+            "proteinContent": "35",
+            "carbohydrateContent": "60",
+            "fatContent": "12",
+            "fiberContent": "8",
+            "sodiumContent": "800",
+        }
+    }
+
+
+async def test_patch_recipe_without_nutrition_skips_fetch(invoke, fetcher):
+    await invoke("patch_recipe", slug="test-recipe", servings=2)
+
+    assert fetcher.last("GET") is None
+    body = fetcher.last("PATCH", "/api/recipes/")["json"]
+    assert body == {"recipeServings": 2}

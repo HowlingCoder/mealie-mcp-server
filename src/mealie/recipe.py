@@ -144,6 +144,9 @@ class RecipeMixin:
     def patch_recipe(self, slug: str, recipe_data: Dict[str, Any]) -> Dict[str, Any]:
         """Partially update a recipe (only updates provided fields)
 
+        A provided ``nutrition`` dict is merged into the recipe's current nutrition
+        (fetched first) so fields the caller omits are not erased by the PATCH.
+
         Args:
             slug: The slug identifier of the recipe to patch
             recipe_data: Dictionary containing only the fields to update
@@ -157,7 +160,12 @@ class RecipeMixin:
             raise ValueError("Recipe data cannot be empty")
 
         logger.info({"message": "Patching recipe", "slug": slug})
-        return self._handle_request("PATCH", f"/api/recipes/{slug}", json=recipe_data)
+        payload = dict(recipe_data)
+        if payload.get("nutrition"):
+            current = self._handle_request("GET", f"/api/recipes/{slug}")
+            existing = current.get("nutrition") if isinstance(current, dict) else None
+            payload["nutrition"] = {**(existing or {}), **payload["nutrition"]}
+        return self._handle_request("PATCH", f"/api/recipes/{slug}", json=payload)
 
     def set_recipe_categories(self, slug: str, category_ids: List[str]) -> Dict[str, Any]:
         """Set the categories for a recipe, replacing any existing categories.

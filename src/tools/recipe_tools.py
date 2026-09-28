@@ -459,6 +459,12 @@ def register_recipe_tools(mcp: FastMCP, mealie: MealieFetcher) -> None:
         org_url: Optional[str] = None,
         tags: Optional[List[OrganizerRef]] = None,
         tools: Optional[List[OrganizerRef]] = None,
+        calories: Optional[str] = None,
+        protein_content: Optional[str] = None,
+        carbohydrate_content: Optional[str] = None,
+        fat_content: Optional[str] = None,
+        fiber_content: Optional[str] = None,
+        sodium_content: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Partially update a recipe (only updates provided fields).
 
@@ -475,6 +481,13 @@ def register_recipe_tools(mcp: FastMCP, mealie: MealieFetcher) -> None:
             org_url: Source URL for the recipe (shown as a link in the Mealie UI).
             tags: Existing Mealie tags (id+name) to set; look up with get_tags.
             tools: Existing Mealie tools (id+name) to set; look up with get_tools.
+            calories: Calories per serving, e.g. "450". Nutrition fields are merged
+                into the existing nutrition; omitted ones stay unchanged.
+            protein_content: Protein in grams per serving, e.g. "35".
+            carbohydrate_content: Carbohydrates in grams per serving, e.g. "60".
+            fat_content: Fat in grams per serving, e.g. "12".
+            fiber_content: Fiber in grams per serving, e.g. "8".
+            sodium_content: Sodium in milligrams per serving, e.g. "800".
 
         Returns:
             Dict[str, Any]: The updated recipe details.
@@ -505,6 +518,21 @@ def register_recipe_tools(mcp: FastMCP, mealie: MealieFetcher) -> None:
                 recipe_data["tags"] = [_organizer_payload(t) for t in tags]
             if tools is not None:
                 recipe_data["tools"] = [_organizer_payload(t) for t in tools]
+
+            nutrition = {
+                key: value
+                for key, value in {
+                    "calories": calories,
+                    "proteinContent": protein_content,
+                    "carbohydrateContent": carbohydrate_content,
+                    "fatContent": fat_content,
+                    "fiberContent": fiber_content,
+                    "sodiumContent": sodium_content,
+                }.items()
+                if value is not None
+            }
+            if nutrition:
+                recipe_data["nutrition"] = nutrition
 
             if not recipe_data:
                 raise ValueError("At least one field must be provided to update")
