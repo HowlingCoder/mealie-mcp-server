@@ -58,14 +58,18 @@ class MealieClient:
             )
             raise
 
-    def _handle_request(self, method: str, url: str, **kwargs) -> Dict[str, Any] | str:
+    def _handle_request(
+        self, method: str, url: str, **kwargs
+    ) -> Dict[str, Any] | str | bytes:
         """Common request handler with error handling for all API calls.
 
         Supports:
         - JSON requests via json= parameter
         - Multipart uploads via files= parameter
         - Form data via data= parameter
+        - Binary downloads via raw=True (returns the response body as bytes)
         """
+        raw = kwargs.pop("raw", False)
         try:
             logger.debug(
                 {
@@ -91,6 +95,9 @@ class MealieClient:
             logger.debug(
                 {"message": "Request successful", "status_code": response.status_code}
             )
+
+            if raw:
+                return response.content
 
             # Handle empty responses (common for DELETE operations)
             if response.status_code == 204 or (not response.content or len(response.content) == 0):

@@ -5,6 +5,12 @@ from utils import format_api_params
 
 logger = logging.getLogger("mealie-mcp")
 
+# Image variants Mealie generates per recipe (ImageType in its OpenAPI schema)
+RECIPE_IMAGE_ORIGINAL = "original.webp"
+RECIPE_IMAGE_THUMBNAIL = "min-original.webp"
+RECIPE_IMAGE_TINY = "tiny-original.webp"
+RECIPE_IMAGE_FILES = {RECIPE_IMAGE_ORIGINAL, RECIPE_IMAGE_THUMBNAIL, RECIPE_IMAGE_TINY}
+
 
 class RecipeMixin:
     """Mixin class for recipe-related API endpoints"""
@@ -272,6 +278,35 @@ class RecipeMixin:
 
         logger.info({"message": "Updating recipe last made", "slug": slug})
         return self._handle_request("PATCH", f"/api/recipes/{slug}/last-made", json=payload)
+
+    def get_recipe_image(
+        self, recipe_id: str, file_name: str = RECIPE_IMAGE_ORIGINAL
+    ) -> bytes:
+        """Download a recipe image from Mealie's media endpoint
+
+        Args:
+            recipe_id: The UUID (NOT the slug) of the recipe
+            file_name: One of 'original.webp', 'min-original.webp' (thumbnail)
+                or 'tiny-original.webp'
+
+        Returns:
+            The raw image bytes (WebP)
+        """
+        if not recipe_id:
+            raise ValueError("Recipe ID cannot be empty")
+        if file_name not in RECIPE_IMAGE_FILES:
+            raise ValueError(
+                f"Unsupported image file name '{file_name}'. "
+                f"Use one of: {', '.join(sorted(RECIPE_IMAGE_FILES))}"
+            )
+
+        logger.info({"message": "Downloading recipe image", "file_name": file_name})
+        data = self._handle_request(
+            "GET", f"/api/media/recipes/{recipe_id}/images/{file_name}", raw=True
+        )
+        if not data:
+            raise ValueError("Mealie returned an empty image")
+        return data
 
     def scrape_recipe_image_from_url(self, slug: str, image_url: str) -> Dict[str, Any]:
         """Scrape and set a recipe's image from a URL (JSON payload)

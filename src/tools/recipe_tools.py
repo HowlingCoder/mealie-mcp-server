@@ -4,10 +4,12 @@ import traceback
 import uuid
 from typing import Any, Dict, List, Optional, Union
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP, Image
 from mcp.server.fastmcp.exceptions import ToolError
 
 from mealie import MealieFetcher
+from mealie.client import MealieApiError
+from mealie.recipe import RECIPE_IMAGE_ORIGINAL, RECIPE_IMAGE_THUMBNAIL
 from models.recipe import (
     OrganizerRef,
     Recipe,
@@ -587,6 +589,60 @@ def register_recipe_tools(mcp: FastMCP, mealie: MealieFetcher) -> None:
             logger.debug(
                 {"message": "Error traceback", "traceback": traceback.format_exc()}
             )
+            raise ToolError(error_msg)
+
+    def _download_recipe_image(slug: str, file_name: str) -> Image:
+        recipe = mealie.get_recipe(slug)
+        if not recipe.get("image"):
+            raise ValueError("Recipe has no image")
+        try:
+            data = mealie.get_recipe_image(recipe["id"], file_name)
+        except MealieApiError as e:
+            if e.status_code == 404:
+                # recipe.image is set but the file is missing on the Mealie server
+                raise ValueError("Recipe image file not found on the Mealie server")
+            raise
+        return Image(data=data, format="webp")
+
+    @mcp.tool()
+    def get_recipe_image(slug: str) -> Image:
+        """Get the full-size image of a recipe so it can be viewed directly.
+
+        Use get_recipe_thumbnail instead when a small preview is enough; it
+        transfers far less data.
+
+        Args:
+            slug: The unique text identifier for the recipe.
+
+        Returns:
+            Image: The recipe's original image (WebP). Fails if the recipe has no image.
+        """
+        try:
+            logger.info({"message": "Fetching recipe image", "slug": slug})
+            return _download_recipe_image(slug, RECIPE_IMAGE_ORIGINAL)
+        except Exception as e:
+            error_msg = f"Error fetching image for recipe '{slug}': {str(e)}"
+            logger.error({"message": error_msg})
+            logger.debug({"message": "Error traceback", "traceback": traceback.format_exc()})
+            raise ToolError(error_msg)
+
+    @mcp.tool()
+    def get_recipe_thumbnail(slug: str) -> Image:
+        """Get the small thumbnail of a recipe (the preview size Mealie shows in recipe cards).
+
+        Args:
+            slug: The unique text identifier for the recipe.
+
+        Returns:
+            Image: The recipe's thumbnail (WebP). Fails if the recipe has no image.
+        """
+        try:
+            logger.info({"message": "Fetching recipe thumbnail", "slug": slug})
+            return _download_recipe_image(slug, RECIPE_IMAGE_THUMBNAIL)
+        except Exception as e:
+            error_msg = f"Error fetching thumbnail for recipe '{slug}': {str(e)}"
+            logger.error({"message": error_msg})
+            logger.debug({"message": "Error traceback", "traceback": traceback.format_exc()})
             raise ToolError(error_msg)
 
     @mcp.tool()
