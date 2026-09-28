@@ -29,6 +29,9 @@ mcp = FastMCP("mealie")
 
 MEALIE_BASE_URL = os.getenv("MEALIE_BASE_URL")
 MEALIE_API_KEY = os.getenv("MEALIE_API_KEY")
+# Optional: address under which callers reach Mealie (used for image URLs).
+# Falls back to MEALIE_BASE_URL.
+MEALIE_PUBLIC_URL = os.getenv("MEALIE_PUBLIC_URL")
 if not MEALIE_BASE_URL or not MEALIE_API_KEY:
     raise ValueError(
         "MEALIE_BASE_URL and MEALIE_API_KEY must be set in environment variables."
@@ -38,6 +41,7 @@ try:
     mealie = MealieFetcher(
         base_url=MEALIE_BASE_URL,
         api_key=MEALIE_API_KEY,
+        public_url=MEALIE_PUBLIC_URL,
     )
 except Exception as e:
     logger.error({"message": "Failed to initialize Mealie client", "error": str(e)})

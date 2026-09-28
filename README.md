@@ -116,7 +116,7 @@ Restart Claude Desktop to load the server.
 
 ## 🎯 Available Tools
 
-### Recipe Tools (16 operations)
+### Recipe Tools (15 operations)
 
 - `get_recipes` - List/search recipes with advanced filtering
 - `get_recipe_detailed` - Get complete recipe details
@@ -127,9 +127,8 @@ Restart Claude Desktop to load the server.
 - `patch_recipe` - Update specific fields only
 - `duplicate_recipe` - Clone a recipe
 - `mark_recipe_last_made` - Update last made timestamp
-- `get_recipe_image` - View the full-size recipe image
-- `get_recipe_thumbnail` - View the small recipe thumbnail
-- `get_recipe_thumbnails_b64` - Batch (max 25) of small JPEG thumbnails as base64 data URLs (plain text, not an image)
+- `get_recipe_image_url` - Public URL of the full-size recipe image (`original.webp`)
+- `get_recipe_thumbnail_url` - Public URL of the small recipe thumbnail (`tiny-original.webp`)
 - `set_recipe_image_from_url` - Set image from URL
 - `upload_recipe_image_file` - Upload image file
 - `upload_recipe_asset_file` - Upload document/asset

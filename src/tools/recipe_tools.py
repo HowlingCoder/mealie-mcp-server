@@ -1,16 +1,13 @@
-import asyncio
 import logging
 import re
 import traceback
 import uuid
 from typing import Any, Dict, List, Optional, Union
 
-from mcp.server.fastmcp import FastMCP, Image
+from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 
 from mealie import MealieFetcher
-from mealie.client import MealieApiError
-from mealie.recipe import RECIPE_IMAGE_ORIGINAL, RECIPE_IMAGE_THUMBNAIL
 from models.recipe import (
     OrganizerRef,
     Recipe,
@@ -21,15 +18,8 @@ from models.recipe import (
     RecipeTag,
     RecipeTool,
 )
-from utils import image_to_jpeg_data_url
 
 logger = logging.getLogger("mealie-mcp")
-
-# Limits for get_recipe_thumbnails_b64
-MAX_THUMBNAIL_BATCH = 25
-THUMBNAIL_CONCURRENCY = 5
-THUMBNAIL_MIN_EDGE, THUMBNAIL_MAX_EDGE = 32, 512
-THUMBNAIL_MIN_QUALITY, THUMBNAIL_MAX_QUALITY = 30, 95
 
 
 def _build_ingredient(
@@ -599,118 +589,50 @@ def register_recipe_tools(mcp: FastMCP, mealie: MealieFetcher) -> None:
             )
             raise ToolError(error_msg)
 
-    def _fetch_recipe_image_bytes(slug: str, file_name: str) -> bytes:
-        recipe = mealie.get_recipe(slug)
-        if not recipe.get("image"):
-            raise ValueError("Recipe has no image")
-        try:
-            return mealie.get_recipe_image(recipe["id"], file_name)
-        except MealieApiError as e:
-            if e.status_code == 404:
-                # recipe.image is set but the file is missing on the Mealie server
-                raise ValueError("Recipe image file not found on the Mealie server")
-            raise
-
-    def _download_recipe_image(slug: str, file_name: str) -> Image:
-        return Image(data=_fetch_recipe_image_bytes(slug, file_name), format="webp")
-
     @mcp.tool()
-    def get_recipe_image(slug: str) -> Image:
-        """Get the full-size image of a recipe so it can be viewed directly.
+    def get_recipe_image_url(slug: str) -> str:
+        """Get the public URL of a recipe's full-size image (WebP).
 
-        Use get_recipe_thumbnail instead when a small preview is enough; it
-        transfers far less data.
+        Mealie serves recipe images without authentication, so the URL can be used
+        directly, e.g. as <img src="..."> or in a link. Use get_recipe_thumbnail_url
+        for a much smaller preview.
 
         Args:
             slug: The unique text identifier for the recipe.
 
         Returns:
-            Image: The recipe's original image (WebP). Fails if the recipe has no image.
+            str: Absolute image URL. Fails if the recipe has no image.
         """
         try:
-            logger.info({"message": "Fetching recipe image", "slug": slug})
-            return _download_recipe_image(slug, RECIPE_IMAGE_ORIGINAL)
+            logger.info({"message": "Building recipe image URL", "slug": slug})
+            return mealie.get_recipe_image_url(slug)
         except Exception as e:
-            error_msg = f"Error fetching image for recipe '{slug}': {str(e)}"
+            error_msg = f"Error getting image URL for recipe '{slug}': {str(e)}"
             logger.error({"message": error_msg})
             logger.debug({"message": "Error traceback", "traceback": traceback.format_exc()})
             raise ToolError(error_msg)
 
     @mcp.tool()
-    def get_recipe_thumbnail(slug: str) -> Image:
-        """Get the small thumbnail of a recipe (the preview size Mealie shows in recipe cards).
+    def get_recipe_thumbnail_url(slug: str) -> str:
+        """Get the public URL of a recipe's small thumbnail image (WebP).
+
+        Mealie serves recipe images without authentication, so the URL can be used
+        directly, e.g. as <img src="..."> in a list or grid of recipes.
 
         Args:
             slug: The unique text identifier for the recipe.
 
         Returns:
-            Image: The recipe's thumbnail (WebP). Fails if the recipe has no image.
+            str: Absolute thumbnail URL. Fails if the recipe has no image.
         """
         try:
-            logger.info({"message": "Fetching recipe thumbnail", "slug": slug})
-            return _download_recipe_image(slug, RECIPE_IMAGE_THUMBNAIL)
+            logger.info({"message": "Building recipe thumbnail URL", "slug": slug})
+            return mealie.get_recipe_image_url(slug, thumbnail=True)
         except Exception as e:
-            error_msg = f"Error fetching thumbnail for recipe '{slug}': {str(e)}"
+            error_msg = f"Error getting thumbnail URL for recipe '{slug}': {str(e)}"
             logger.error({"message": error_msg})
             logger.debug({"message": "Error traceback", "traceback": traceback.format_exc()})
             raise ToolError(error_msg)
-
-    @mcp.tool()
-    async def get_recipe_thumbnails_b64(
-        slugs: List[str], max_edge: int = 150, quality: int = 70
-    ) -> Dict[str, Optional[str]]:
-        """Get small JPEG thumbnails of several recipes as base64 text (data URLs).
-
-        Unlike get_recipe_thumbnail this returns plain text instead of an image, so the
-        caller can process or embed the result (e.g. in HTML as <img src="...">).
-        Each thumbnail is scaled down so its longest edge is at most max_edge
-        (aspect ratio kept) and encoded as JPEG.
-
-        A recipe without an image, or an image that cannot be fetched or decoded, gets
-        None; one failing slug never fails the whole call.
-
-        Args:
-            slugs: Recipe slugs (max 25 per call).
-            max_edge: Longest edge in pixels, clamped to 32-512 (default 150).
-            quality: JPEG quality, clamped to 30-95 (default 70).
-
-        Returns:
-            Dict[str, Optional[str]]: slug -> "data:image/jpeg;base64,..." or None.
-        """
-        if len(slugs) > MAX_THUMBNAIL_BATCH:
-            raise ToolError(
-                f"Too many slugs: {len(slugs)}. "
-                f"At most {MAX_THUMBNAIL_BATCH} slugs are allowed per call."
-            )
-
-        edge = max(THUMBNAIL_MIN_EDGE, min(THUMBNAIL_MAX_EDGE, max_edge))
-        jpeg_quality = max(THUMBNAIL_MIN_QUALITY, min(THUMBNAIL_MAX_QUALITY, quality))
-        logger.info({"message": "Fetching recipe thumbnails", "count": len(slugs)})
-
-        semaphore = asyncio.Semaphore(THUMBNAIL_CONCURRENCY)
-
-        async def build(slug: str) -> Optional[str]:
-            async with semaphore:
-                try:
-                    data = await asyncio.to_thread(
-                        _fetch_recipe_image_bytes, slug, RECIPE_IMAGE_THUMBNAIL
-                    )
-                    return await asyncio.to_thread(
-                        image_to_jpeg_data_url, data, edge, jpeg_quality
-                    )
-                except Exception as e:
-                    logger.warning(
-                        {
-                            "message": "Recipe thumbnail unavailable",
-                            "slug": slug,
-                            "error_type": type(e).__name__,
-                        }
-                    )
-                    return None
-
-        unique_slugs = list(dict.fromkeys(slugs))
-        results = await asyncio.gather(*(build(slug) for slug in unique_slugs))
-        return dict(zip(unique_slugs, results))
 
     @mcp.tool()
     def set_recipe_image_from_url(slug: str, image_url: str) -> Dict[str, Any]:

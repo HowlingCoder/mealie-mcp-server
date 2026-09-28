@@ -46,7 +46,7 @@ class FakeFetcher(MealieFetcher):
         self.recipe = dict(BASE_RECIPE)
         self.user_id = "44444444-4444-4444-4444-444444444444"
         self.ratings = []
-        self.image_bytes = b"fake-webp-bytes"
+        self.public_url = "https://mealie.example.test"
 
     def _handle_request(self, method, url, **kwargs):
         self.requests.append(
@@ -70,10 +70,6 @@ class FakeFetcher(MealieFetcher):
             raise MealieApiError(404, f"API error for {method} {url}: not found")
         if method == "POST" and url.startswith("/api/users/") and "/ratings/" in url:
             return {"success": True, "message": "Operation completed successfully"}
-        # recipe images (binary download via raw=True)
-        if method == "GET" and url.startswith("/api/media/recipes/"):
-            assert kwargs.get("raw") is True
-            return self.image_bytes
         if method == "GET" and url == "/api/recipes":
             return {"items": [self.recipe], "page": 1, "perPage": -1, "total": 1}
         if method == "POST" and url == "/api/recipes":
