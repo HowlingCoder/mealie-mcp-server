@@ -14,6 +14,7 @@ from mcp.server.fastmcp import FastMCP
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from mealie import MealieFetcher  # noqa: E402
+from mealie.client import MealieApiError  # noqa: E402
 from tools import register_all_tools  # noqa: E402
 
 # A minimal but schema-valid recipe payload (satisfies the required Recipe
@@ -43,6 +44,8 @@ class FakeFetcher(MealieFetcher):
         self.requests = []
         self.created_slug = "test-recipe"
         self.recipe = dict(BASE_RECIPE)
+        self.user_id = "44444444-4444-4444-4444-444444444444"
+        self.ratings = []
 
     def _handle_request(self, method, url, **kwargs):
         self.requests.append(
@@ -53,6 +56,21 @@ class FakeFetcher(MealieFetcher):
                 "params": kwargs.get("params"),
             }
         )
+        # current user + per-user ratings
+        if method == "GET" and url == "/api/users/self":
+            return {"id": self.user_id, "username": "tester"}
+        if method == "GET" and url == "/api/users/self/ratings":
+            return {"ratings": list(self.ratings)}
+        if method == "GET" and url.startswith("/api/users/self/ratings/"):
+            recipe_id = url.rsplit("/", 1)[-1]
+            for entry in self.ratings:
+                if entry["recipeId"] == recipe_id:
+                    return dict(entry)
+            raise MealieApiError(404, f"API error for {method} {url}: not found")
+        if method == "POST" and url.startswith("/api/users/") and "/ratings/" in url:
+            return {"success": True, "message": "Operation completed successfully"}
+        if method == "GET" and url == "/api/recipes":
+            return {"items": [self.recipe], "page": 1, "perPage": -1, "total": 1}
         if method == "POST" and url == "/api/recipes":
             name = (kwargs.get("json") or {}).get("name")
             if name:

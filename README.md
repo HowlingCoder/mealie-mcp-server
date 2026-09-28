@@ -132,6 +132,12 @@ Restart Claude Desktop to load the server.
 - `upload_recipe_asset_file` - Upload document/asset
 - `delete_recipe` - Delete recipe
 
+### Rating Tools (3 operations)
+
+- `set_recipe_rating` - Set star rating (0-5) and/or favorite flag for the current user
+- `get_recipe_rating` - Get the current user's rating for a recipe
+- `get_rated_recipes` - List all rated recipes, best first (optional `min_rating`)
+
 ### Shopping List Tools (14 operations)
 
 - `get_shopping_lists` - List all shopping lists
