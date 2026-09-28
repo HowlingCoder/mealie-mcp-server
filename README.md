@@ -63,7 +63,7 @@ Run directly from GitHub without cloning:
   "mcpServers": {
     "mealie-mcp-server": {
       "command": "uvx",
-      "args": ["git+https://github.com/rldiao/mealie-mcp-server"],
+      "args": ["https://github.com/HowlingCoder/mealie-mcp-server"],
       "env": {
         "MEALIE_BASE_URL": "https://your-mealie-instance.com",
         "MEALIE_API_KEY": "your-mealie-api-key"
